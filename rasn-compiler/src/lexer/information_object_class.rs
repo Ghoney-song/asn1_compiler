@@ -236,14 +236,9 @@ fn default_syntax_information_object(
     map(
         many1(terminated(
             skip_ws_and_comments(alt((
-                into(map(
-                    (
-                        single_value_field_id,
-                        opt(skip_ws_and_comments(identifier)),
-                        opt(skip_ws_and_comments(char(':'))),
-                        skip_ws_and_comments(asn1_value),
-                    ),
-                    |(id, _, _, val)| (id, val),
+                into(pair(
+                    single_value_field_id,
+                    skip_ws_and_comments(asn1_value),
                 )),
                 into(pair(multiple_value_field_id, object_set)),
                 into(pair(

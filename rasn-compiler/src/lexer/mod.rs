@@ -200,23 +200,16 @@ pub fn asn1_value(input: Input<'_>) -> ParserResult<'_, ASN1Value> {
 
 pub fn elsewhere_declared_value(input: Input<'_>) -> ParserResult<'_, ASN1Value> {
     map(
-        (
+        pair(
             opt(skip_ws_and_comments(recognize(many1(pair(
                 identifier,
                 tag(".&"),
             ))))),
             value_reference,
-            opt(preceded(
-                skip_ws_and_comments(char(':')),
-                skip_ws_and_comments(value_reference),
-            )),
         ),
-        |(p, id, val)| ASN1Value::ElsewhereDeclaredValue {
+        |(p, id)| ASN1Value::ElsewhereDeclaredValue {
             parent: p.map(|par| par.inner().to_string()),
-            identifier: match val {
-                Some(v) => format!("{} : {}", id, v),
-                None => id.into(),
-            },
+            identifier: id.into(),
         },
     )
     .parse(input)

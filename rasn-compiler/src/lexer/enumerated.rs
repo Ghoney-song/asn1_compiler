@@ -95,13 +95,8 @@ fn enumerals<'a>(
 fn enumerated_body(input: Input<'_>) -> ParserResult<'_, EnumeralBody> {
     in_braces(|input| {
         let (input, root_enumerals) = enumerals(0).parse(input)?;
-        let (input, _) = opt(skip_ws_and_comments(char(','))).parse(input)?;
-        let (input, ext_marker) = opt(terminated(
-            extension_marker,
-            opt(skip_ws_and_comments(char(COMMA))),
-        ))
-        .parse(input)?;
-        let (input, _) = opt(skip_ws_and_comments(char(','))).parse(input)?;
+        let (input, ext_marker) =
+            opt(terminated(extension_marker, opt(char(COMMA)))).parse(input)?;
         let (input, ext_enumerals) = opt(enumerals(root_enumerals.len())).parse(input)?;
         Ok((input, (root_enumerals, ext_marker, ext_enumerals)))
     })

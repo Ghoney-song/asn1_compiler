@@ -4,7 +4,7 @@ use nom::{
     character::complete::{
         alpha1, alphanumeric1, char, i128, multispace0, multispace1, one_of, u64,
     },
-    combinator::{cut, into, map, map_res, not, opt, peek, recognize, rest, success, value},
+    combinator::{cut, into, map, map_res, opt, peek, recognize, rest, success, value},
     multi::{many0, many1},
     sequence::{delimited, pair, preceded, terminated},
     Parser,
@@ -233,14 +233,8 @@ pub fn asn_tag(input: Input<'_>) -> ParserResult<'_, AsnTag> {
             skip_ws_and_comments(u64),
         )),
         skip_ws_and_comments(opt(alt((
-            value(
-                TaggingEnvironment::Explicit,
-                terminated(tag(EXPLICIT), peek(not(alphanumeric1))),
-            ),
-            value(
-                TaggingEnvironment::Implicit,
-                terminated(tag(IMPLICIT), peek(not(alphanumeric1))),
-            ),
+            value(TaggingEnvironment::Explicit, tag(EXPLICIT)),
+            value(TaggingEnvironment::Implicit, tag(IMPLICIT)),
         )))),
     ))
     .parse(input)

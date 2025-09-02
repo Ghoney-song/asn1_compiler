@@ -71,12 +71,9 @@ impl PerVisibleAlphabetConstraints {
         // ITU-T X.691 clause 30.1, 30.6: Known-multiplier character strings types
         match string_type {
             // 30.1: Known-multiplier character string types
-            CharacterStringType::NumericString
-            | CharacterStringType::PrintableString
-            | CharacterStringType::VisibleString
-            | CharacterStringType::IA5String
-            | CharacterStringType::BMPString
-            | CharacterStringType::UniversalString => {}
+            CharacterStringType::NumericString | CharacterStringType::PrintableString |
+            CharacterStringType::VisibleString | CharacterStringType::IA5String |
+            CharacterStringType::BMPString | CharacterStringType::UniversalString => {},
             // 30.6: Non-known-multiplier character string types
             _ => return Ok(None),
         }
@@ -340,17 +337,9 @@ impl TryFrom<&Constraint> for PerVisibleRangeConstraints {
                 let mut per_visible: PerVisibleRangeConstraints = match &c.set {
                     ElementOrSetOperation::Element(e) => Some(e).try_into(),
                     ElementOrSetOperation::SetOperation(s) => {
-                        let mut v: PerVisibleRangeConstraints =
-                            fold_constraint_set(s, None, true)?.as_ref().try_into()?;
-                        if s.operator == SetOperator::Intersection
-                            && (matches!(s.base, SubtypeElements::SizeConstraint(_))
-                                | matches!(
-                                    *s.operant,
-                                    ElementOrSetOperation::Element(
-                                        SubtypeElements::SizeConstraint(_)
-                                    )
-                                ))
-                        {
+                        let mut v: PerVisibleRangeConstraints = fold_constraint_set(s, None, true)?.as_ref().try_into()?;
+                        if s.operator == SetOperator::Intersection && (matches!(s.base, SubtypeElements::SizeConstraint(_)) |
+                            matches!(*s.operant, ElementOrSetOperation::Element(SubtypeElements::SizeConstraint(_)))) {
                             v.is_size_constraint = true;
                         }
                         Ok(v)
@@ -503,9 +492,7 @@ fn fold_constraint_set(
 ) -> Result<Option<SubtypeElements>, GrammarError> {
     let folded_operant = match &*set.operant {
         ElementOrSetOperation::Element(e) => e.per_visible().then(|| e.clone()),
-        ElementOrSetOperation::SetOperation(s) => {
-            fold_constraint_set(s, char_set, range_constraint)?
-        }
+        ElementOrSetOperation::SetOperation(s) => fold_constraint_set(s, char_set, range_constraint)?,
     };
     match (&set.base, &folded_operant) {
         (base, Some(SubtypeElements::PermittedAlphabet(elem_or_set)))
@@ -557,9 +544,7 @@ fn fold_constraint_set(
         | (SubtypeElements::SizeConstraint(elem_or_set), None) => {
             return match &**elem_or_set {
                 ElementOrSetOperation::Element(e) => Ok(Some(e.clone())),
-                ElementOrSetOperation::SetOperation(s) => {
-                    fold_constraint_set(s, char_set, range_constraint)
-                }
+                ElementOrSetOperation::SetOperation(s) => fold_constraint_set(s, char_set, range_constraint),
             }
         }
         _ => (),
@@ -637,15 +622,7 @@ fn fold_constraint_set(
                     max,
                     extensible: x2,
                 }),
-            ) => intersect_single_and_range(
-                value,
-                min.as_ref(),
-                max.as_ref(),
-                *x1,
-                *x2,
-                char_set,
-                range_constraint,
-            ),
+            ) => intersect_single_and_range(value, min.as_ref(), max.as_ref(), *x1, *x2, char_set, range_constraint),
             (
                 SubtypeElements::ValueRange {
                     min,
@@ -656,15 +633,7 @@ fn fold_constraint_set(
                     value,
                     extensible: x1,
                 }),
-            ) => intersect_single_and_range(
-                value,
-                min.as_ref(),
-                max.as_ref(),
-                *x1,
-                *x2,
-                char_set,
-                range_constraint,
-            ),
+            ) => intersect_single_and_range(value, min.as_ref(), max.as_ref(), *x1, *x2, char_set, range_constraint),
             (
                 _,
                 Some(SubtypeElements::SingleValue {
@@ -774,15 +743,7 @@ fn fold_constraint_set(
                     value: v,
                     extensible: x2,
                 }),
-            ) => union_single_and_range(
-                &v,
-                min.as_ref(),
-                char_set,
-                max.as_ref(),
-                *x1,
-                x2,
-                range_constraint,
-            ),
+            ) => union_single_and_range(&v, min.as_ref(), char_set, max.as_ref(), *x1, x2, range_constraint),
             (
                 SubtypeElements::SingleValue {
                     value: v,
@@ -793,15 +754,7 @@ fn fold_constraint_set(
                     max,
                     extensible: x2,
                 }),
-            ) => union_single_and_range(
-                v,
-                min.as_ref(),
-                char_set,
-                max.as_ref(),
-                *x1,
-                x2,
-                range_constraint,
-            ),
+            ) => union_single_and_range(v, min.as_ref(), char_set, max.as_ref(), *x1, x2, range_constraint),
             (
                 SubtypeElements::ValueRange {
                     min: min1,
@@ -951,14 +904,7 @@ fn union_single_and_range(
             extensible,
         })),
         (_, _, _, true, _, _) => Ok(None),
-        (
-            ASN1Value::String(s1),
-            Some(ASN1Value::String(min)),
-            Some(ASN1Value::String(max)),
-            _,
-            Some(chars),
-            _,
-        ) => {
+        (ASN1Value::String(s1), Some(ASN1Value::String(min)), Some(ASN1Value::String(max)), _, Some(chars), _) => {
             let min_i = find_string_index(min, chars)?;
             let max_i = find_string_index(max, chars)?;
             let mut indicies = std::collections::BTreeSet::new();
@@ -997,7 +943,7 @@ fn union_single_and_range(
                     extensible: false,
                 }))
             }
-        }
+        },
         (ASN1Value::String(_), _, _, _, None, true) => Ok(None),
         _ => Err(GrammarError::new(
             &format!("Unsupported operation for values {v:?} and {min:?}..{max:?}"),

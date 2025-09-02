@@ -29,7 +29,6 @@ path = "src/bin.rs"
 cli = ["clap", "colored", "walkdir"]
 
 [dependencies]
-rasn = { workspace = true }
 chrono = "0.4.41"
 clap = { version = "4.5.38", optional = true, features = ["derive"] }
 colored = { version = "3", optional = true }

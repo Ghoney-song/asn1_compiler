@@ -1,14 +1,11 @@
 [workspace]
 resolver = "2"
-members = [ "pdcp-sim",
+members = [
     "rasn-compiler",
     "rasn-compiler-derive",
     "rasn-compiler-tests",
     "rasn-compiler/internal-macros"
 ]
-
-[workspace.dependencies]
-rasn = "0.27.0"
 
 [workspace.package]
 edition = "2021"
