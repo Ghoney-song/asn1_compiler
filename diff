@@ -1,0 +1,355 @@
+PS C:\Users\dkfla\OneDrive\문서\compiler> git diff .\rasn-compiler\
+warning: in the working copy of 'rasn-compiler/Cargo.toml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'rasn-compiler/src/generator/rasn/utils.rs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'rasn-compiler/src/intermediate/encoding_rules/per_visible.rs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'rasn-compiler/src/lexer/common.rs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'rasn-compiler/src/lexer/enumerated.rs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'rasn-compiler/src/lexer/information_object_class.rs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'rasn-compiler/src/lexer/mod.rs', LF will be replaced by CRLF the next time Git touches it
+diff --git a/rasn-compiler/Cargo.toml b/rasn-compiler/Cargo.toml
+index ce50c86..81bb1ab 100644
+--- a/rasn-compiler/Cargo.toml
++++ b/rasn-compiler/Cargo.toml
+@@ -29,6 +29,7 @@ path = "src/bin.rs"
+ cli = ["clap", "colored", "walkdir"]
+
+ [dependencies]
++rasn = { workspace = true }
+ chrono = "0.4.41"
+ clap = { version = "4.5.38", optional = true, features = ["derive"] }
+ colored = { version = "3", optional = true }
+diff --git a/rasn-compiler/src/generator/rasn/utils.rs b/rasn-compiler/src/generator/rasn/utils.rs
+index c2ac34d..55329b4 100644
+--- a/rasn-compiler/src/generator/rasn/utils.rs
++++ b/rasn-compiler/src/generator/rasn/utils.rs
+@@ -514,11 +514,14 @@ impl Rasn {
+             // ITU-T X.691 clause 30.1, 30.6: Known-multiplier character strings types
+             match c_string.ty {
+                 // 30.1: Known-multiplier character string types
+-                CharacterStringType::NumericString | CharacterStringType::PrintableString |
+-                CharacterStringType::VisibleString | CharacterStringType::IA5String |
+-                CharacterStringType::BMPString | CharacterStringType::UniversalString => {
++                CharacterStringType::NumericString
++                | CharacterStringType::PrintableString
++                | CharacterStringType::VisibleString
++                | CharacterStringType::IA5String
++                | CharacterStringType::BMPString
++                | CharacterStringType::UniversalString => {
+                     self.format_range_annotations(false, &all_constraints)?
+-                },
++                }
+                 // 30.6: Non-known-multiplier character string types
+                 _ => TokenStream::new(),
+             }
+diff --git a/rasn-compiler/src/intermediate/encoding_rules/per_visible.rs b/rasn-compiler/src/intermediate/encoding_rules/per_visible.rs
+index 1ab09f3..ab9bc07 100644
+--- a/rasn-compiler/src/intermediate/encoding_rules/per_visible.rs
++++ b/rasn-compiler/src/intermediate/encoding_rules/per_visible.rs
+@@ -71,9 +71,12 @@ impl PerVisibleAlphabetConstraints {
+         // ITU-T X.691 clause 30.1, 30.6: Known-multiplier character strings types
+         match string_type {
+             // 30.1: Known-multiplier character string types
+-            CharacterStringType::NumericString | CharacterStringType::PrintableString |
+-            CharacterStringType::VisibleString | CharacterStringType::IA5String |
+-            CharacterStringType::BMPString | CharacterStringType::UniversalString => {},
++            CharacterStringType::NumericString
++            | CharacterStringType::PrintableString
++            | CharacterStringType::VisibleString
++            | CharacterStringType::IA5String
++            | CharacterStringType::BMPString
++            | CharacterStringType::UniversalString => {}
+             // 30.6: Non-known-multiplier character string types
+             _ => return Ok(None),
+         }
+@@ -337,9 +340,17 @@ impl TryFrom<&Constraint> for PerVisibleRangeConstraints {
+                 let mut per_visible: PerVisibleRangeConstraints = match &c.set {
+                     ElementOrSetOperation::Element(e) => Some(e).try_into(),
+                     ElementOrSetOperation::SetOperation(s) => {
+-                        let mut v: PerVisibleRangeConstraints = fold_constraint_set(s, None, true)?.as_ref().try_into()?;
+-                        if s.operator == SetOperator::Intersection && (matches!(s.base, SubtypeElements::SizeConstraint(_)) |
+-                            matches!(*s.operant, ElementOrSetOperation::Element(SubtypeElements::SizeConstraint(_)))) {
++                        let mut v: PerVisibleRangeConstraints =
++                            fold_constraint_set(s, None, true)?.as_ref().try_into()?;
++                        if s.operator == SetOperator::Intersection
++                            && (matches!(s.base, SubtypeElements::SizeConstraint(_))
++                                | matches!(
++                                    *s.operant,
++                                    ElementOrSetOperation::Element(
++                                        SubtypeElements::SizeConstraint(_)
++                                    )
++                                ))
++                        {
+                             v.is_size_constraint = true;
+                         }
+                         Ok(v)
+@@ -492,7 +503,9 @@ fn fold_constraint_set(
+ ) -> Result<Option<SubtypeElements>, GrammarError> {
+     let folded_operant = match &*set.operant {
+         ElementOrSetOperation::Element(e) => e.per_visible().then(|| e.clone()),
+-        ElementOrSetOperation::SetOperation(s) => fold_constraint_set(s, char_set, range_constraint)?,
++        ElementOrSetOperation::SetOperation(s) => {
++            fold_constraint_set(s, char_set, range_constraint)?
++        }
+     };
+     match (&set.base, &folded_operant) {
+         (base, Some(SubtypeElements::PermittedAlphabet(elem_or_set)))
+@@ -544,7 +557,9 @@ fn fold_constraint_set(
+         | (SubtypeElements::SizeConstraint(elem_or_set), None) => {
+             return match &**elem_or_set {
+                 ElementOrSetOperation::Element(e) => Ok(Some(e.clone())),
+-                ElementOrSetOperation::SetOperation(s) => fold_constraint_set(s, char_set, range_constraint),
++                ElementOrSetOperation::SetOperation(s) => {
++                    fold_constraint_set(s, char_set, range_constraint)
++                }
+             }
+         }
+         _ => (),
+@@ -622,7 +637,15 @@ fn fold_constraint_set(
+                     max,
+                     extensible: x2,
+                 }),
+-            ) => intersect_single_and_range(value, min.as_ref(), max.as_ref(), *x1, *x2, char_set, range_constraint),
++            ) => intersect_single_and_range(
++                value,
++                min.as_ref(),
++                max.as_ref(),
++                *x1,
++                *x2,
++                char_set,
++                range_constraint,
++            ),
+             (
+                 SubtypeElements::ValueRange {
+                     min,
+@@ -633,7 +656,15 @@ fn fold_constraint_set(
+                     value,
+                     extensible: x1,
+                 }),
+-            ) => intersect_single_and_range(value, min.as_ref(), max.as_ref(), *x1, *x2, char_set, range_constraint),
++            ) => intersect_single_and_range(
++                value,
++                min.as_ref(),
++                max.as_ref(),
++                *x1,
++                *x2,
++                char_set,
++                range_constraint,
++            ),
+             (
+                 _,
+                 Some(SubtypeElements::SingleValue {
+@@ -743,7 +774,15 @@ fn fold_constraint_set(
+                     value: v,
+                     extensible: x2,
+                 }),
+-            ) => union_single_and_range(&v, min.as_ref(), char_set, max.as_ref(), *x1, x2, range_constraint),
++            ) => union_single_and_range(
++                &v,
++                min.as_ref(),
++                char_set,
++                max.as_ref(),
++                *x1,
++                x2,
++                range_constraint,
++            ),
+             (
+                 SubtypeElements::SingleValue {
+                     value: v,
+@@ -754,7 +793,15 @@ fn fold_constraint_set(
+                     max,
+                     extensible: x2,
+                 }),
+-            ) => union_single_and_range(v, min.as_ref(), char_set, max.as_ref(), *x1, x2, range_constraint),
++            ) => union_single_and_range(
++                v,
++                min.as_ref(),
++                char_set,
++                max.as_ref(),
++                *x1,
++                x2,
++                range_constraint,
++            ),
+             (
+                 SubtypeElements::ValueRange {
+                     min: min1,
+@@ -904,7 +951,14 @@ fn union_single_and_range(
+             extensible,
+         })),
+         (_, _, _, true, _, _) => Ok(None),
+-        (ASN1Value::String(s1), Some(ASN1Value::String(min)), Some(ASN1Value::String(max)), _, Some(chars), _) => {
++        (
++            ASN1Value::String(s1),
++            Some(ASN1Value::String(min)),
++            Some(ASN1Value::String(max)),
++            _,
++            Some(chars),
++            _,
++        ) => {
+             let min_i = find_string_index(min, chars)?;
+             let max_i = find_string_index(max, chars)?;
+             let mut indicies = std::collections::BTreeSet::new();
+@@ -943,7 +997,7 @@ fn union_single_and_range(
+                     extensible: false,
+                 }))
+             }
+-        },
++        }
+         (ASN1Value::String(_), _, _, _, None, true) => Ok(None),
+         _ => Err(GrammarError::new(
+             &format!("Unsupported operation for values {v:?} and {min:?}..{max:?}"),
+diff --git a/rasn-compiler/src/lexer/common.rs b/rasn-compiler/src/lexer/common.rs
+index 49227c8..9c633ad 100644
+--- a/rasn-compiler/src/lexer/common.rs
++++ b/rasn-compiler/src/lexer/common.rs
+@@ -4,7 +4,7 @@ use nom::{
+     character::complete::{
+         alpha1, alphanumeric1, char, i128, multispace0, multispace1, one_of, u64,
+     },
+-    combinator::{cut, into, map, map_res, opt, peek, recognize, rest, success, value},
++    combinator::{cut, into, map, map_res, not, opt, peek, recognize, rest, success, value},
+     multi::{many0, many1},
+     sequence::{delimited, pair, preceded, terminated},
+     Parser,
+@@ -233,8 +233,14 @@ pub fn asn_tag(input: Input<'_>) -> ParserResult<'_, AsnTag> {
+             skip_ws_and_comments(u64),
+         )),
+         skip_ws_and_comments(opt(alt((
+-            value(TaggingEnvironment::Explicit, tag(EXPLICIT)),
+-            value(TaggingEnvironment::Implicit, tag(IMPLICIT)),
++            value(
++                TaggingEnvironment::Explicit,
++                terminated(tag(EXPLICIT), peek(not(alphanumeric1))),
++            ),
++            value(
++                TaggingEnvironment::Implicit,
++                terminated(tag(IMPLICIT), peek(not(alphanumeric1))),
++            ),
+         )))),
+     ))
+     .parse(input)
+diff --git a/rasn-compiler/src/lexer/enumerated.rs b/rasn-compiler/src/lexer/enumerated.rs
+index 4fa24b8..3062573 100644
+--- a/rasn-compiler/src/lexer/enumerated.rs
++++ b/rasn-compiler/src/lexer/enumerated.rs
+@@ -95,8 +95,13 @@ fn enumerals<'a>(
+ fn enumerated_body(input: Input<'_>) -> ParserResult<'_, EnumeralBody> {
+     in_braces(|input| {
+         let (input, root_enumerals) = enumerals(0).parse(input)?;
+-        let (input, ext_marker) =
+-            opt(terminated(extension_marker, opt(char(COMMA)))).parse(input)?;
++        let (input, _) = opt(skip_ws_and_comments(char(','))).parse(input)?;
++        let (input, ext_marker) = opt(terminated(
++            extension_marker,
++            opt(skip_ws_and_comments(char(COMMA))),
++        ))
++        .parse(input)?;
++        let (input, _) = opt(skip_ws_and_comments(char(','))).parse(input)?;
+         let (input, ext_enumerals) = opt(enumerals(root_enumerals.len())).parse(input)?;
+         Ok((input, (root_enumerals, ext_marker, ext_enumerals)))
+     })
+diff --git a/rasn-compiler/src/lexer/information_object_class.rs b/rasn-compiler/src/lexer/information_object_class.rs
+index 16e7bde..459e12c 100644
+--- a/rasn-compiler/src/lexer/information_object_class.rs
++++ b/rasn-compiler/src/lexer/information_object_class.rs
+@@ -236,9 +236,14 @@ fn default_syntax_information_object(
+     map(
+         many1(terminated(
+             skip_ws_and_comments(alt((
+-                into(pair(
+-                    single_value_field_id,
+-                    skip_ws_and_comments(asn1_value),
++                into(map(
++                    (
++                        single_value_field_id,
++                        opt(skip_ws_and_comments(identifier)),
++                        opt(skip_ws_and_comments(char(':'))),
++                        skip_ws_and_comments(asn1_value),
++                    ),
++                    |(id, _, _, val)| (id, val),
+                 )),
+                 into(pair(multiple_value_field_id, object_set)),
+                 into(pair(
+diff --git a/rasn-compiler/src/lexer/mod.rs b/rasn-compiler/src/lexer/mod.rs
+index 3276e43..838e418 100644
+--- a/rasn-compiler/src/lexer/mod.rs
++++ b/rasn-compiler/src/lexer/mod.rs
+@@ -200,16 +200,23 @@ pub fn asn1_value(input: Input<'_>) -> ParserResult<'_, ASN1Value> {
+
+ pub fn elsewhere_declared_value(input: Input<'_>) -> ParserResult<'_, ASN1Value> {
+     map(
+:
+     ))
+     .parse(input)
+diff --git a/rasn-compiler/src/lexer/enumerated.rs b/rasn-compiler/src/lexer/enumerated.rs
+index 4fa24b8..3062573 100644
+--- a/rasn-compiler/src/lexer/enumerated.rs
++++ b/rasn-compiler/src/lexer/enumerated.rs
+@@ -95,8 +95,13 @@ fn enumerals<'a>(
+ fn enumerated_body(input: Input<'_>) -> ParserResult<'_, EnumeralBody> {
+     in_braces(|input| {
+         let (input, root_enumerals) = enumerals(0).parse(input)?;
+-        let (input, ext_marker) =
+-            opt(terminated(extension_marker, opt(char(COMMA)))).parse(input)?;
++        let (input, _) = opt(skip_ws_and_comments(char(','))).parse(input)?;
++        let (input, ext_marker) = opt(terminated(
++            extension_marker,
++            opt(skip_ws_and_comments(char(COMMA))),
++        ))
++        .parse(input)?;
++        let (input, _) = opt(skip_ws_and_comments(char(','))).parse(input)?;
+         let (input, ext_enumerals) = opt(enumerals(root_enumerals.len())).parse(input)?;
+         Ok((input, (root_enumerals, ext_marker, ext_enumerals)))
+     })
+diff --git a/rasn-compiler/src/lexer/information_object_class.rs b/rasn-compiler/src/lexer/information_object_class.rs
+index 16e7bde..459e12c 100644
+--- a/rasn-compiler/src/lexer/information_object_class.rs
++++ b/rasn-compiler/src/lexer/information_object_class.rs
+@@ -236,9 +236,14 @@ fn default_syntax_information_object(
+     map(
+         many1(terminated(
+             skip_ws_and_comments(alt((
+-                into(pair(
+-                    single_value_field_id,
+-                    skip_ws_and_comments(asn1_value),
++                into(map(
++                    (
++                        single_value_field_id,
++                        opt(skip_ws_and_comments(identifier)),
++                        opt(skip_ws_and_comments(char(':'))),
++                        skip_ws_and_comments(asn1_value),
++                    ),
++                    |(id, _, _, val)| (id, val),
+                 )),
+                 into(pair(multiple_value_field_id, object_set)),
+                 into(pair(
+diff --git a/rasn-compiler/src/lexer/mod.rs b/rasn-compiler/src/lexer/mod.rs
+index 3276e43..838e418 100644
+--- a/rasn-compiler/src/lexer/mod.rs
++++ b/rasn-compiler/src/lexer/mod.rs
+@@ -200,16 +200,23 @@ pub fn asn1_value(input: Input<'_>) -> ParserResult<'_, ASN1Value> {
+
+ pub fn elsewhere_declared_value(input: Input<'_>) -> ParserResult<'_, ASN1Value> {
+     map(
+-        pair(
++        (
+             opt(skip_ws_and_comments(recognize(many1(pair(
+                 identifier,
+                 tag(".&"),
+             ))))),
+             value_reference,
++            opt(preceded(
++                skip_ws_and_comments(char(':')),
++                skip_ws_and_comments(value_reference),
++            )),
+         ),
+-        |(p, id)| ASN1Value::ElsewhereDeclaredValue {
++        |(p, id, val)| ASN1Value::ElsewhereDeclaredValue {
+             parent: p.map(|par| par.inner().to_string()),
+-            identifier: id.into(),
++            identifier: match val {
++                Some(v) => format!("{} : {}", id, v),
++                None => id.into(),
++            },
+         },
+     )
+     .parse(input)
