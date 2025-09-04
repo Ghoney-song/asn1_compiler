@@ -272,15 +272,17 @@ impl From<(ASN1Value, RangeSeperator, ASN1Value, ExtensionMarker)> for ValueCons
 /// _See: ITU-T X.682 (02/2021) 10_
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableConstraint {
+    pub class: String,
     pub object_set: ObjectSet,
     pub linked_fields: Vec<RelationalConstraint>,
 }
 
-impl From<(ObjectSet, Option<Vec<RelationalConstraint>>)> for TableConstraint {
-    fn from(value: (ObjectSet, Option<Vec<RelationalConstraint>>)) -> Self {
+impl From<(String, ObjectSet, Option<Vec<RelationalConstraint>>)> for TableConstraint {
+    fn from(value: (String, ObjectSet, Option<Vec<RelationalConstraint>>)) -> Self {
         Self {
-            object_set: value.0,
-            linked_fields: value.1.unwrap_or_default(),
+            class: value.0,
+            object_set: value.1,
+            linked_fields: value.2.unwrap_or_default(),
         }
     }
 }

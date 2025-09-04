@@ -7,5 +7,8 @@ version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
-[dependencies]
+[build-dependencies]
 rasn-compiler = { path = "../rasn-compiler" }
+
+[dependencies]
+rasn = "0.27.2"

@@ -157,6 +157,17 @@ impl Backend for Rasn {
                     details: e.to_string(),
                     ..Default::default()
                 })?;
+            let all_tlds = &tlds;
+            let implicit_imports: Vec<_> = module.implicit_imports.iter().map(|import_name| {
+                if let Some(tld) = all_tlds.iter().find(|t| t.name() == import_name) {
+                    if let Some(header) = tld.get_module_header() {
+                        let module = self.to_rust_snake_case(&header.borrow().name);
+                        let import_ident = self.to_rust_title_case(import_name);
+                        return quote!(use super::#module::#import_ident;);
+                    }
+                }
+                quote!()
+            }).collect();
             let imports = module.imports.iter().map(|import| {
                 let module =
                     self.to_rust_snake_case(&import.global_module_reference.module_reference);
@@ -212,6 +223,7 @@ impl Backend for Rasn {
                     use rasn::prelude::*;
                     #(#custom_imports)*
                     #(#imports)*
+                    #(#implicit_imports)*
 
                     #(#pdus)*
                 }
@@ -239,9 +251,12 @@ impl Backend for Rasn {
 
 impl Rasn {
     fn get_rustfmt_path() -> Result<PathBuf, Box<dyn Error>> {
+        let rustfmt_name = format!("rustfmt{}", std::env::consts::EXE_SUFFIX);
+
         // Try ~/.cargo/bin/rustfmt style paths first
         if let Ok(path) = env::var("CARGO_HOME").map(PathBuf::from).map(|mut path| {
-            path.push("bin/rustfmt");
+            path.push("bin");
+            path.push(rustfmt_name.clone());
             path
         }) {
             if path.exists() {
@@ -251,7 +266,7 @@ impl Rasn {
 
         // Alternatively, maybe rustfmt and cargo are in the same directory
         if let Ok(path) = env::var("CARGO").map(PathBuf::from).map(|mut path| {
-            path.set_file_name("rustfmt");
+            path.set_file_name(rustfmt_name);
             path
         }) {
             if path.exists() {

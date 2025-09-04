@@ -8,7 +8,9 @@ mod utils;
 
 use std::{
     borrow::{BorrowMut, Cow},
+    cell::RefCell,
     collections::BTreeMap,
+    rc::Rc,
 };
 
 use crate::{
@@ -219,8 +221,9 @@ impl ToplevelDefinition {
         &mut self,
         tlds: &BTreeMap<String, ToplevelDefinition>,
     ) -> Result<(), GrammarError> {
+        let module_header = self.get_module_header();
         match self {
-            ToplevelDefinition::Type(t) => t.ty.collect_supertypes(tlds),
+            ToplevelDefinition::Type(t) => t.ty.collect_supertypes(tlds, module_header),
             ToplevelDefinition::Value(v) => v.collect_supertypes(tlds),
             ToplevelDefinition::Class(_) => Ok(()),
             ToplevelDefinition::Object(o) => o.collect_supertypes(tlds),
@@ -245,12 +248,15 @@ impl ToplevelValueDefinition {
         &mut self,
         tlds: &BTreeMap<String, ToplevelDefinition>,
     ) -> Result<(), GrammarError> {
+        let current_module_header = self.module_header.clone();
         if let Some(ToplevelDefinition::Type(tld)) =
             tlds.get(self.associated_type.as_str().as_ref())
         {
-            self.value.link_with_type(tlds, &tld.ty, Some(&tld.name))
+            self.value
+                .link_with_type(tlds, &tld.ty, Some(&tld.name), current_module_header)
         } else {
-            self.value.link_with_type(tlds, &self.associated_type, None)
+            self.value
+                .link_with_type(tlds, &self.associated_type, None, current_module_header)
         }
     }
 }
@@ -262,21 +268,48 @@ impl ASN1Type {
     pub fn collect_supertypes(
         &mut self,
         tlds: &BTreeMap<String, ToplevelDefinition>,
+        current_module_header: Option<Rc<RefCell<ModuleHeader>>>,
     ) -> Result<(), GrammarError> {
         match self {
             ASN1Type::Set(ref mut s) | ASN1Type::Sequence(ref mut s) => {
                 s.members.iter_mut().try_for_each(|m| {
-                    m.ty.collect_supertypes(tlds)?;
+                    if let Some(header) = &current_module_header {
+                        for constraint in &m.constraints {
+                            if let Constraint::Table(table_constraint) = constraint {
+                                if let Some(ToplevelDefinition::Class(class_tld)) =
+                                    tlds.get(&table_constraint.class)
+                                {
+                                    let class_defn = &class_tld.definition;
+                                    for field in &class_defn.fields {
+                                        if let Some(ASN1Type::ElsewhereDeclaredType(edt)) = &field.ty
+                                        {
+                                            (**header)
+                                                .borrow_mut()
+                                                .implicit_imports
+                                                .insert(edt.identifier.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    m.ty.collect_supertypes(tlds, current_module_header.clone())?;
                     m.optionality
                         .default_mut()
-                        .map(|d| d.link_with_type(tlds, &m.ty, Some(&m.ty.as_str().into_owned())))
+                        .map(|d| {
+                            d.link_with_type(
+                                tlds,
+                                &m.ty,
+                                Some(&m.ty.as_str().into_owned()),
+                                current_module_header.clone(),
+                            )
+                        })
                         .unwrap_or(Ok(()))
                 })
             }
-            ASN1Type::Choice(ref mut c) => c
-                .options
-                .iter_mut()
-                .try_for_each(|o| o.ty.collect_supertypes(tlds)),
+            ASN1Type::Choice(ref mut c) => c.options.iter_mut().try_for_each(|o| {
+                o.ty.collect_supertypes(tlds, current_module_header.clone())
+            }),
             _ => Ok(()),
         }
     }
@@ -546,8 +579,8 @@ impl ASN1Type {
                     impl_template = replacement;
                 };
                 impl_template
-                    .collect_supertypes(&impl_tlds)
-                    .or_else(|_| impl_template.collect_supertypes(tlds))?;
+                    .collect_supertypes(&impl_tlds, None)
+                    .or_else(|_| impl_template.collect_supertypes(tlds, None))?;
                 for (dummy_reference, osv) in table_constraint_replacements {
                     impl_template.reassign_table_constraint(dummy_reference, osv)?;
                 }
@@ -714,7 +747,9 @@ impl ASN1Type {
             }
             ASN1Type::ElsewhereDeclaredType(e) => {
                 if let Some(ToplevelDefinition::Type(tld)) = tlds.get(&e.identifier) {
-                    *self = tld.ty.clone();
+                    let mut resolved_type = tld.ty.clone();
+                    resolved_type.link_elsewhere_declared(tlds)?;
+                    *self = resolved_type;
                     Ok(())
                 } else {
                     Err(grammar_error!(
@@ -877,6 +912,7 @@ impl ASN1Value {
         tlds: &BTreeMap<String, ToplevelDefinition>,
         ty: &ASN1Type,
         type_name: Option<&String>,
+        current_module_header: Option<Rc<RefCell<ModuleHeader>>>,
     ) -> Result<(), GrammarError> {
         #[allow(clippy::useless_asref)] // false positive
         match (ty, self.as_mut()) {
@@ -892,13 +928,39 @@ impl ASN1Value {
                     *integer_type = int_type;
                 }
                 if let Some(ToplevelDefinition::Type(t)) = tlds.get(&e.identifier) {
-                    self.link_with_type(tlds, &t.ty, Some(&t.name))
+                    if let (Some(current_header), Some(resolved_header)) =
+                        (current_module_header.as_ref(), t.module_header.as_ref())
+                    {
+                        if current_header.borrow().name != resolved_header.borrow().name {
+                            (&**current_header)
+                                .borrow_mut()
+                                .implicit_imports
+                                .insert(e.identifier.clone());
+                        }
+                    }
+                    self.link_with_type(tlds, &t.ty, Some(&t.name), current_module_header)
                 } else {
-                    Err(grammar_error!(
-                        LinkerError,
-                        "Failed to link value with '{}'",
-                        e.identifier
-                    ))
+                    let mut new_tlds = tlds.clone();
+                    for tld in tlds.values() {
+                        if let Some(header) = tld.get_module_header() {
+                            for import in &header.borrow().imports {
+                                for symbol in &import.types {
+                                    if let Some(tld) = tlds.get(symbol as &str) {
+                                        new_tlds.insert(symbol.clone(), tld.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(ToplevelDefinition::Type(t)) = new_tlds.get(&e.identifier) {
+                        self.link_with_type(&new_tlds, &t.ty, Some(&t.name), current_module_header)
+                    } else {
+                        Err(grammar_error!(
+                            LinkerError,
+                            "Failed to link value with '{}'",
+                            e.identifier
+                        ))
+                    }
                 }
             }
             (
@@ -934,6 +996,7 @@ impl ASN1Value {
                             tlds,
                             &ASN1Type::ElsewhereDeclaredType(e.clone()),
                             None,
+                            current_module_header,
                         )?;
                         return Ok(());
                     }
@@ -951,13 +1014,34 @@ impl ASN1Value {
                     value: Box::new((*val).clone()),
                 };
                 if let Some(ToplevelDefinition::Type(t)) = tlds.get(&e.identifier) {
-                    self.link_with_type(tlds, &t.ty, Some(&t.name))
+                    self.link_with_type(tlds, &t.ty, Some(&t.name), current_module_header)
                 } else {
-                    Err(grammar_error!(
-                        LinkerError,
-                        "Failed to link value with '{}'",
-                        e.identifier
-                    ))
+                    let mut new_tlds = tlds.clone();
+                    for tld in tlds.values() {
+                        if let Some(header) = tld.get_module_header() {
+                            for import in &header.borrow().imports {
+                                for symbol in &import.types {
+                                    if let Some(tld) = tlds.get(symbol as &str) {
+                                        new_tlds.insert(symbol.clone(), tld.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(ToplevelDefinition::Type(t)) = new_tlds.get(&e.identifier) {
+                        self.link_with_type(
+                            &new_tlds,
+                            &t.ty,
+                            Some(&t.name),
+                            current_module_header,
+                        )
+                    } else {
+                        Err(grammar_error!(
+                            LinkerError,
+                            "Failed to link value with '{}'",
+                            e.identifier
+                        ))
+                    }
                 }
             }
             (
@@ -974,6 +1058,7 @@ impl ASN1Value {
                         tlds,
                         &option.ty,
                         Some(&option.ty.as_str().into_owned()),
+                        current_module_header,
                     )
                 } else {
                     Err(grammar_error!(
@@ -999,6 +1084,7 @@ impl ASN1Value {
                             tlds,
                             &option.ty,
                             Some(&option.ty.as_str().into_owned()),
+                            current_module_header,
                         )
                     } else {
                         Err(grammar_error!(
@@ -1040,11 +1126,11 @@ impl ASN1Value {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 *self = ASN1Value::SequenceOrSet(struct_value);
-                self.link_with_type(tlds, ty, type_name)
+                self.link_with_type(tlds, ty, type_name, current_module_header)
             }
             (ASN1Type::Set(s), ASN1Value::SequenceOrSet(val))
             | (ASN1Type::Sequence(s), ASN1Value::SequenceOrSet(val)) => {
-                *self = Self::link_struct_like(val, s, tlds, type_name)?;
+                *self = Self::link_struct_like(val, s, tlds, type_name, current_module_header)?;
                 Ok(())
             }
             (ASN1Type::Set(s), ASN1Value::LinkedNestedValue { value, .. })
@@ -1052,13 +1138,14 @@ impl ASN1Value {
                 if matches![**value, ASN1Value::SequenceOrSet(_)] =>
             {
                 if let ASN1Value::SequenceOrSet(val) = &mut **value {
-                    *value = Box::new(Self::link_struct_like(val, s, tlds, type_name)?);
+                    *value =
+                        Box::new(Self::link_struct_like(val, s, tlds, type_name, current_module_header)?);
                 }
                 Ok(())
             }
             (ASN1Type::SetOf(s), ASN1Value::SequenceOrSet(val))
             | (ASN1Type::SequenceOf(s), ASN1Value::SequenceOrSet(val)) => {
-                *self = Self::link_array_like(val, s, tlds)?;
+                *self = Self::link_array_like(val, s, tlds, current_module_header)?;
                 Ok(())
             }
             (ASN1Type::SetOf(s), ASN1Value::LinkedNestedValue { value, .. })
@@ -1066,7 +1153,7 @@ impl ASN1Value {
                 if matches![**value, ASN1Value::SequenceOrSet(_)] =>
             {
                 if let ASN1Value::SequenceOrSet(val) = &mut **value {
-                    *value = Box::new(Self::link_array_like(val, s, tlds)?);
+                    *value = Box::new(Self::link_array_like(val, s, tlds, current_module_header)?);
                 }
                 Ok(())
             }
@@ -1113,7 +1200,7 @@ impl ASN1Value {
                         })
                         .collect(),
                 );
-                self.link_with_type(tlds, ty, type_name)
+                self.link_with_type(tlds, ty, type_name, current_module_header)
             }
             (
                 ASN1Type::BitString(BitString {
@@ -1136,7 +1223,7 @@ impl ASN1Value {
                             })
                             .collect(),
                     ));
-                    self.link_with_type(tlds, ty, type_name)?;
+                    self.link_with_type(tlds, ty, type_name, current_module_header)?;
                 }
                 Ok(())
             }
@@ -1150,7 +1237,7 @@ impl ASN1Value {
                 *self = ASN1Value::BitStringNamedBits(
                     o.0.iter().filter_map(|arc| arc.name.clone()).collect(),
                 );
-                self.link_with_type(tlds, ty, type_name)
+                self.link_with_type(tlds, ty, type_name, current_module_header)
             }
             (
                 ASN1Type::BitString(BitString {
@@ -1163,7 +1250,7 @@ impl ASN1Value {
                     *value = Box::new(ASN1Value::BitStringNamedBits(
                         o.0.iter().filter_map(|arc| arc.name.clone()).collect(),
                     ));
-                    self.link_with_type(tlds, ty, type_name)?;
+                    self.link_with_type(tlds, ty, type_name, current_module_header)?;
                 }
                 Ok(())
             }
@@ -1322,7 +1409,7 @@ impl ASN1Value {
             ) => {
                 if let Some(ToplevelDefinition::Value(tld)) = tlds.get(identifier) {
                     *self = tld.value.clone();
-                    self.link_with_type(tlds, ty, type_name)?;
+                    self.link_with_type(tlds, ty, type_name, current_module_header)?;
                 }
                 Ok(())
             }
@@ -1396,12 +1483,14 @@ impl ASN1Value {
         val: &mut [(Option<String>, Box<ASN1Value>)],
         s: &SequenceOrSetOf,
         tlds: &BTreeMap<String, ToplevelDefinition>,
+        current_module_header: Option<Rc<RefCell<ModuleHeader>>>,
     ) -> Result<ASN1Value, GrammarError> {
         let _ = val.iter_mut().try_for_each(|v| {
             v.1.link_with_type(
                 tlds,
                 &s.element_type,
                 Some(&s.element_type.as_str().into_owned()),
+                current_module_header.clone(),
             )
         });
         Ok(ASN1Value::LinkedArrayLikeValue(
@@ -1414,6 +1503,7 @@ impl ASN1Value {
         s: &SequenceOrSet,
         tlds: &BTreeMap<String, ToplevelDefinition>,
         type_name: Option<&String>,
+        current_module_header: Option<Rc<RefCell<ModuleHeader>>>,
     ) -> Result<ASN1Value, GrammarError> {
         val.iter_mut().try_for_each(|v| {
             if let Some(member) = s.members.iter().find(|m| Some(&m.name) == v.0.as_ref()) {
@@ -1430,7 +1520,12 @@ impl ASN1Value {
                         ))
                     }
                 };
-                v.1.link_with_type(tlds, &member.ty, type_name.as_ref())
+                v.1.link_with_type(
+                    tlds,
+                    &member.ty,
+                    type_name.as_ref(),
+                    current_module_header.clone(),
+                )
             } else {
                 Err(grammar_error!(
                     LinkerError,

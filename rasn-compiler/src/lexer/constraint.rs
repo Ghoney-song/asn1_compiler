@@ -16,7 +16,7 @@ use super::{
     asn1_type, asn1_value,
     common::{
         extension_marker, identifier, in_braces, in_parentheses, range_seperator,
-        skip_ws_and_comments,
+        skip_ws_and_comments, uppercase_identifier
     },
     error::{MiscError, ParserResult},
     information_object_class::object_set,
@@ -546,13 +546,23 @@ fn content_constraint(input: Input<'_>) -> ParserResult<'_, ContentConstraint> {
 fn table_constraint(input: Input<'_>) -> ParserResult<'_, TableConstraint> {
     opt_delimited(
         skip_ws_and_comments(char(LEFT_PARENTHESIS)),
-        skip_ws_and_comments(into(pair(
-            object_set,
-            opt(in_braces(separated_list1(
-                skip_ws_and_comments(char(COMMA)),
-                relational_constraint,
-            ))),
-        ))),
+        map(
+            pair(
+                skip_ws_and_comments(uppercase_identifier),
+                skip_ws_and_comments(pair(
+                    object_set,
+                    opt(in_braces(separated_list1(
+                        skip_ws_and_comments(char(COMMA)),
+                        relational_constraint,
+                    ))),
+                )),
+            ),
+            |(class, (object_set, linked_fields))| TableConstraint {
+                class: class.into(),
+                object_set,
+                linked_fields: linked_fields.unwrap_or_default(),
+            },
+        ),
         skip_ws_and_comments(char(RIGHT_PARENTHESIS)),
     )
     .parse(input)

@@ -15,7 +15,7 @@ pub mod parameterization;
 pub mod types;
 pub mod utils;
 
-use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, ops::Add, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, collections::{BTreeMap, BTreeSet}, ops::Add, rc::Rc};
 
 use crate::common::INTERNAL_IO_FIELD_REF_TYPE_NAME_PREFIX;
 use constraints::Constraint;
@@ -411,6 +411,7 @@ pub struct ModuleHeader {
     pub tagging_environment: TaggingEnvironment,
     pub extensibility_environment: ExtensibilityEnvironment,
     pub imports: Vec<Import>,
+    pub implicit_imports: BTreeSet<String>,
     pub exports: Option<Exports>,
 }
 
@@ -463,6 +464,7 @@ impl
             extensibility_environment,
             exports: value.3,
             imports: value.4.unwrap_or_default(),
+            implicit_imports: BTreeSet::new(),
         }
     }
 }

@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use crate::intermediate::{
     constraints::Constraint,
     information_object::{
-        ASN1Information, ClassLink, InformationObjectFields, ObjectClassDefn, ObjectSetValue,
-        ToplevelInformationDefinition,
+        ASN1Information, ClassLink, InformationObjectFields, ObjectClassAssignment, ObjectClassDefn,
+        ObjectSetValue, ToplevelInformationDefinition,
     },
     types::Optionality,
     ASN1Type, ASN1Value, CharacterStringType, ToplevelDefinition, ToplevelTypeDefinition,
@@ -46,9 +46,9 @@ impl Rasn {
     ) -> Result<TokenStream, GeneratorError> {
         match tld {
             ToplevelDefinition::Type(t) => {
-                if t.parameterization.is_some() {
-                    return Ok(TokenStream::new());
-                }
+                // if t.parameterization.is_some() {
+                //     return Ok(TokenStream::new());
+                // }
                 match t.ty {
                     ASN1Type::Null => self.generate_null(t),
                     ASN1Type::Boolean(_) => self.generate_boolean(t),
@@ -84,7 +84,7 @@ impl Rasn {
                 }
             }
             ToplevelDefinition::Value(v) => self.generate_value(v),
-            ToplevelDefinition::Class(_) => Ok(TokenStream::new()),
+            ToplevelDefinition::Class(c) => self.generate_class(c),
             ToplevelDefinition::Object(o) => match o.value {
                 ASN1Information::ObjectSet(_) => self.generate_information_object_set(o),
                 ASN1Information::Object(_) => Ok(TokenStream::new()),
@@ -97,6 +97,41 @@ impl Rasn {
         }
     }
 
+    pub(crate) fn generate_class(
+        &self,
+        tld: ObjectClassAssignment,
+    ) -> Result<TokenStream, GeneratorError> {
+        let class = &tld.definition;
+        let name = self.to_rust_title_case(&tld.name);
+        let comments = self.format_comments(&tld.comments)?;
+
+        let mut trait_items = Vec::new();
+
+        for field in &class.fields {
+            let field_identifier_str = field.identifier.identifier().replace('&', "");
+
+            if field.ty.is_some() {
+                let const_name = self.to_rust_const_case(&field_identifier_str);
+                let rust_ty = self.type_to_tokens(field.ty.as_ref().unwrap())?;
+                trait_items.push(quote! {
+                    const #const_name: #rust_ty;
+                });
+            } else {
+                let type_name = self.to_rust_title_case(&field_identifier_str);
+                trait_items.push(quote! {
+                    type #type_name: rasn::prelude::AsnType;
+                });
+            }
+        }
+
+        Ok(quote! {
+            #comments
+            pub trait #name {
+                #(#trait_items)*
+            }
+        })
+    }
+    
     pub(crate) fn generate_typealias(
         &self,
         tld: ToplevelTypeDefinition,

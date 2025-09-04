@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use crate::intermediate::{information_object::*, *};
 
@@ -24,9 +24,10 @@ impl ToplevelInformationDefinition {
         &mut self,
         tlds: &BTreeMap<String, ToplevelDefinition>,
     ) -> Result<(), GrammarError> {
+        let module_header = self.module_header.clone();
         match (&mut self.value, &self.class) {
             (ASN1Information::Object(ref mut o), ClassLink::ByReference(class)) => {
-                match resolve_and_link(&mut o.fields, class, tlds)? {
+                match resolve_and_link(&mut o.fields, class, tlds, module_header)? {
                     Some(ToplevelInformationDefinition {
                         value: ASN1Information::Object(obj),
                         ..
@@ -51,7 +52,7 @@ impl ToplevelInformationDefinition {
                     ObjectSetValue::Reference(_) => Ok(()),
                     ObjectSetValue::Inline(ref mut fields) => {
                         resolve_custom_syntax(fields, class)?;
-                        link_object_fields(fields, class, tlds)
+                        link_object_fields(fields, class, tlds, module_header.clone())
                     }
                 })
             }
@@ -64,9 +65,10 @@ fn resolve_and_link(
     fields: &mut InformationObjectFields,
     class: &ObjectClassDefn,
     tlds: &BTreeMap<String, ToplevelDefinition>,
+    current_module_header: Option<Rc<RefCell<ModuleHeader>>>,
 ) -> Result<Option<ToplevelInformationDefinition>, GrammarError> {
     match resolve_custom_syntax(fields, class) {
-        Ok(()) => link_object_fields(fields, class, tlds).map(|_| None),
+        Ok(()) => link_object_fields(fields, class, tlds, current_module_header).map(|_| None),
         Err(
             err @ GrammarError {
                 kind: GrammarErrorType::SyntaxMismatch,
@@ -92,6 +94,7 @@ fn link_object_fields(
     fields: &mut InformationObjectFields,
     class: &ObjectClassDefn,
     tlds: &BTreeMap<String, ToplevelDefinition>,
+    current_module_header: Option<Rc<RefCell<ModuleHeader>>>,
 ) -> Result<(), GrammarError> {
     match fields {
         InformationObjectFields::DefaultSyntax(ref mut fields) => {
@@ -115,9 +118,12 @@ fn link_object_fields(
                         )
                     })
                     .and_then(|ty| {
-                        fixed
-                            .value
-                            .link_with_type(tlds, ty, Some(&ty.as_str().to_string()))
+                        fixed.value.link_with_type(
+                            tlds,
+                            ty,
+                            Some(&ty.as_str().to_string()),
+                            current_module_header.clone(),
+                        )
                     }),
                 InformationObjectField::ObjectSetField(_) => Err(GrammarError::new(
                     "Linking object set fields is not yet supported!",
